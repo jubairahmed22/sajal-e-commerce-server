@@ -56,7 +56,7 @@ function verifyJWT(req, res, next) {
   const authHeader = req.headers.authorization
 
   if (!authHeader) {
-    return res.status(401).send({ message: 'unauthorized ' })
+    return res.status(401).send({ message: 'unauthorized access' })
   }
   const token = authHeader.split(' ')[1]
 
