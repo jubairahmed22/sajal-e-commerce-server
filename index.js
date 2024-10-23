@@ -301,7 +301,7 @@ async function run() {
           : null;
         
         const videoUrl = req.files['video']
-          ? `${req.protocol}://${req.get('host')}/uploads/${req.files['video'][0].filename}` 
+          ? `${req.protocol}://${req.get('host')}/upload/${req.files['video'][0].filename}` 
           : null;
     
         // Extract product details from the request body
