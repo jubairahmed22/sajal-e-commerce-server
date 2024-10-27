@@ -349,29 +349,138 @@ async function run() {
     app.use('/uploads', express.static('uploads'));
     
 
-
+    app.delete("/deleteProduct/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: ObjectId(id) };
+      const result = await productsCollection.deleteOne(query);
+      res.send(result);
+    });
     
     
-    app.get('/products', async (req, res) => {
-      const page = parseInt(req.query.page) || 1; // Default to page 1 if not provided
-      const limit = 5; // 5 products per page
-    
+    app.get('/admin/products', async (req, res) => {
+      const page = parseInt(req.query.page) || 1;
+      const limit = 5;
       const skip = (page - 1) * limit;
     
-      const query = {};
-      const cursor = productsCollection.find(query).skip(skip).limit(limit);
-      const products = await cursor.toArray();
+      const { title, productId, category, company } = req.query;
     
-      const totalProducts = await productsCollection.countDocuments(query); // To get total count
+      let query = {};
+      if (title) {
+        query.title = { $regex: title, $options: 'i' };
+      }
+      if (productId) {
+        query.productId = productId;
+      }
+      if (category) {
+        query.category = category;
+      }
+      if (company) {
+        query.company = company;
+      }
+    
+      const totalProducts = await productsCollection.countDocuments(query);
       const totalPages = Math.ceil(totalProducts / limit);
+    
+      // Get paginated products
+      const products = await productsCollection
+        .find(query)
+        .sort({ _id: -1 }) 
+        .skip(skip)
+        .limit(limit)
+        .toArray();
+    
+      // Calculate total quantity, buyingPrice, and sellingPrice
+      const totals = await productsCollection.aggregate([
+        { $match: query },
+        {
+          $group: {
+            _id: null,
+            totalQuantity: { $sum: "$quantity" },
+            totalBuyingPrice: { $sum: "$buyingPrice" },
+            totalSellingPrice: { $sum: "$sellingPrice" }
+          }
+        }
+      ]).toArray();
+    
+      // Set default values if no matching totals found
+      const { totalQuantity = 0, totalBuyingPrice = 0, totalSellingPrice = 0 } = totals[0] || {};
     
       res.send({
         products,
         page,
         totalPages,
-        totalProducts
+        totalProducts,
+        totalQuantity,
+        totalBuyingPrice,
+        totalSellingPrice
       });
     });
+    app.get('/visitor/product', async (req, res) => {
+      const page = parseInt(req.query.page) || 1;
+      const limit = 12;
+      const skip = (page - 1) * limit;
+    
+      const { title, productId, category, company } = req.query;
+    
+      let query = {};
+      if (title) {
+        query.title = { $regex: title, $options: 'i' };
+      }
+      if (productId) {
+        query.productId = productId;
+      }
+      if (category) {
+        query.category = category;
+      }
+      if (company) {
+        query.company = company;
+      }
+    
+      const totalProducts = await productsCollection.countDocuments(query);
+      const totalPages = Math.ceil(totalProducts / limit);
+    
+      // Get paginated products
+      const products = await productsCollection
+        .find(query)
+        .sort({ _id: -1 }) 
+        .skip(skip)
+        .limit(limit)
+        .toArray();
+    
+      // Calculate total quantity, buyingPrice, and sellingPrice
+      const totals = await productsCollection.aggregate([
+        { $match: query },
+        {
+          $group: {
+            _id: null,
+            totalQuantity: { $sum: "$quantity" },
+            totalBuyingPrice: { $sum: "$buyingPrice" },
+            totalSellingPrice: { $sum: "$sellingPrice" }
+          }
+        }
+      ]).toArray();
+    
+      // Set default values if no matching totals found
+      const { totalQuantity = 0, totalBuyingPrice = 0, totalSellingPrice = 0 } = totals[0] || {};
+    
+      res.send({
+        products,
+        page,
+        totalPages,
+        totalProducts,
+        totalQuantity,
+        totalBuyingPrice,
+        totalSellingPrice
+      });
+    });
+    
+    
+    
+    
+    
+  
+  
+  
     
     app.get('/products/details/:id', async (req, res) => {
       const id = req.params.id;
