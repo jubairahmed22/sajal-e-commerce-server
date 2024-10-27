@@ -415,7 +415,7 @@ async function run() {
         totalSellingPrice
       });
     });
-    app.get('/visitor/products', async (req, res) => {
+    app.get('/visitor/product', async (req, res) => {
       const page = parseInt(req.query.page) || 1;
       const limit = 12;
       const skip = (page - 1) * limit;
