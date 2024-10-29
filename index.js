@@ -134,6 +134,7 @@ async function run() {
 
     const categoryCollection = client.db('sajal-e').collection('category')
     const companyCollection = client.db('sajal-e').collection('company')
+    const ordersAllCollection = client.db('sajal-e').collection('orders')
 
 
     // stripe payment
@@ -157,27 +158,37 @@ async function run() {
     })
 
     app.post('/save-payment', async (req, res) => {
-      const { paymentId, products, totalPrice, email, name, address, phoneNumber } = req.body;
+      const { products, totalPrice, name, address, phoneNumber, shope } = req.body;
+    
+      // Helper function to generate a random paymentId
+      function generatePaymentId() {
+        const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        let paymentId = '';
+        for (let i = 0; i < 10; i++) {
+          paymentId += characters.charAt(Math.floor(Math.random() * characters.length));
+        }
+        return paymentId;
+      }
     
       try {
-        const paymentCollection = client.db('event-management').collection('payment');
+        const ordersCollection = client.db('sajal-e').collection('orders');
     
         // Create a new payment record with additional user details
         const paymentRecord = {
-          paymentId,
+          paymentId: generatePaymentId(), // Generate and add paymentId
           products,
           totalPrice,
-          email,  // User's email
-          name,  // User's name
-          address,  // User's address
-          phoneNumber,  // User's phone number
+          shope,
+          name, // User's name
+          address, // User's address
+          phoneNumber, // User's phone number
           createdAt: new Date(),
         };
     
         // Insert the payment record into the collection
-        await paymentCollection.insertOne(paymentRecord);
+        await ordersCollection.insertOne(paymentRecord);
     
-        res.status(200).send({ message: 'Payment details saved successfully' });
+        res.status(200).send({ message: 'Payment details saved successfully', paymentId: paymentRecord.paymentId });
       } catch (error) {
         console.error(error);
         res.status(500).send({ error: 'Failed to save payment details' });
@@ -415,6 +426,8 @@ async function run() {
         totalSellingPrice
       });
     });
+
+
     app.get('/visitor/products', async (req, res) => {
       const page = parseInt(req.query.page) || 1;
       const limit = 12;
@@ -474,14 +487,6 @@ async function run() {
       });
     });
     
-    
-    
-    
-    
-  
-  
-  
-    
     app.get('/products/details/:id', async (req, res) => {
       const id = req.params.id;
       const product = await productsCollection.findOne({ _id: new ObjectId(id) });
@@ -490,8 +495,63 @@ async function run() {
       }
       res.send(product);
     });
-    
 
+    
+    
+    app.get('/admin/orders', async (req, res) => {
+      const page = parseInt(req.query.page) || 1;
+      const limit = 5;
+      const skip = (page - 1) * limit;
+    
+      const { phoneNumber } = req.query;
+    
+      let query = {};
+    
+      if (phoneNumber) {
+        query.phoneNumber = phoneNumber;
+      }
+      
+    
+      const totalOrders = await ordersAllCollection.countDocuments(query);
+      const totalPages = Math.ceil(totalOrders / limit);
+    
+      // Get paginated products
+      const products = await ordersAllCollection
+        .find(query)
+        .sort({ _id: -1 }) 
+        .skip(skip)
+        .limit(limit)
+        .toArray();
+    
+      // Calculate total quantity, buyingPrice, and sellingPrice
+      const totals = await ordersAllCollection.aggregate([
+        { $match: query },
+        {
+          $group: {
+            _id: null,
+            totalOrderPrice: { $sum: "$totalPrice" },
+          }
+        }
+      ]).toArray();
+    
+      // Set default values if no matching totals found
+      const { totalOrderPrice = 0 } = totals[0] || {};
+    
+      res.send({
+        products,
+        page,
+        totalPages,
+        totalOrders,
+        totalOrderPrice
+      });
+    });
+
+    app.delete("/deleteOrders/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: ObjectId(id) };
+      const result = await ordersAllCollection.deleteOne(query);
+      res.send(result);
+    });
     console.log('Database Connected...')
     console.log(uri);
   } finally {
