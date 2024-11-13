@@ -13,17 +13,17 @@ const port = process.env.PORT || 8000
 const path = require('path');
 
 // Middlewares
-const whitelist = ['http://localhost:3000', 'https://aircnc-a740e.web.app']
-const corsOptions = {
-  origin: function (origin, callback) {
-    if (!origin || whitelist.indexOf(origin) !== -1) {
-      callback(null, true)
-    } else {
-      callback(new Error('Not allowed by CORS'))
-    }
-  },
-  credentials: true,
-}
+// const whitelist = ['http://localhost:3000', 'https://aircnc-a740e.web.app']
+// const corsOptions = {
+//   origin: function (origin, callback) {
+//     if (!origin || whitelist.indexOf(origin) !== -1) {
+//       callback(null, true)
+//     } else {
+//       callback(new Error('Not allowed by CORS'))
+//     }
+//   },
+//   credentials: true,
+// }
 
 cloudinary.config({
   cloud_name: process.env.CLOUD_NAME,
@@ -32,7 +32,7 @@ cloudinary.config({
 });
 
 
-app.use(cors(corsOptions))
+app.use(cors());
 app.use(express.json())
 
 // Define Payment schema for MongoDB
@@ -106,25 +106,52 @@ const client = new MongoClient(uri, {
   serverApi: ServerApiVersion.v1,
 })
 
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, 'uploads/'); // Directory where images and videos will be stored
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, uniqueSuffix + path.extname(file.originalname)); // Unique file name
-  },
-});
+// const storage = multer.diskStorage({
+//   destination: function (req, file, cb) {
+//     cb(null, 'uploads/'); // Directory where images and videos will be stored
+//   },
+//   filename: function (req, file, cb) {
+//     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+//     cb(null, uniqueSuffix + path.extname(file.originalname)); // Unique file name
+//   },
+// });
 
 // Multer setup for handling multiple file types
+// const upload = multer({
+//   storage: storage,
+//   limits: { fileSize: 1024 * 1024 * 10 }, // Limit file size to 10MB for each file
+// }).fields([
+//   { name: 'images', maxCount: 5 },      // Field for multiple images (limit 5)
+//   { name: 'singleImage', maxCount: 1 }, // Field for a single image
+//   { name: 'video', maxCount: 1 },       // Field for a video
+// ]);
+const storage = multer.memoryStorage();
+
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 1024 * 1024 * 10 }, // Limit file size to 10MB for each file
+  limits: { fileSize: 1024 * 1024 * 10 }, // Limit file size to 10MB per file
 }).fields([
-  { name: 'images', maxCount: 5 },      // Field for multiple images (limit 5)
-  { name: 'singleImage', maxCount: 1 }, // Field for a single image
-  { name: 'video', maxCount: 1 },       // Field for a video
+  { name: 'images', maxCount: 5 },
+  { name: 'singleImage', maxCount: 1 },
+  { name: 'video', maxCount: 1 },
 ]);
+
+// Function to upload files from memory to Cloudinary
+const uploadToCloudinary = (fileBuffer, folder, resourceType) => {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        resource_type: resourceType,
+        folder: folder, // Optional: specify a folder in Cloudinary
+      },
+      (error, result) => {
+        if (error) reject(error);
+        else resolve(result.secure_url);
+      }
+    );
+    stream.end(fileBuffer);
+  });
+};
 
 async function run() {
   try {
@@ -295,63 +322,59 @@ async function run() {
     })
     
     app.post('/upload-products', (req, res) => {
-      upload(req, res, async function (err) {
+      upload(req, res, async (err) => {
         if (err instanceof multer.MulterError) {
           return res.status(400).json({ error: err.message });
         } else if (err) {
           return res.status(500).json({ error: 'File upload failed!' });
         }
     
-        // Access the uploaded files and construct HTTP links
-        const uploadedImages = req.files['images']
-          ? req.files['images'].map((file) => `${req.protocol}://${req.get('host')}/uploads/${file.filename}`)
-          : [];
-        
-        const singleImageUrl = req.files['singleImage']
-          ? `${req.protocol}://${req.get('host')}/uploads/${req.files['singleImage'][0].filename}`
-          : null;
-        
-        const videoUrl = req.files['video']
-          ? `${req.protocol}://${req.get('host')}/uploads/${req.files['video'][0].filename}` 
-          : null;
-    
-        // Extract product details from the request body
-        const { title, buyingPrice, sellingPrice, quantity, description, model, category, company } = req.body;
-    
-        // Generate a unique 8-digit product ID
-        const productId = Math.floor(10000000 + Math.random() * 90000000).toString();
-    
-        // Get the current date
-    
-        // Create a product object
-        const newProduct = {
-          productId,
-          title,
-          buyingPrice: Number(buyingPrice),
-          sellingPrice: Number(sellingPrice),
-          quantity: Number(quantity),
-          description,
-          category,
-          company,
-          model, // Include model in the product object
-          images: uploadedImages,      // Store the HTTP links of the uploaded images
-          singleImage: singleImageUrl, // Store the HTTP link of the single image
-          video: videoUrl,             // Store the HTTP link of the uploaded video
-          createdAt: new Date(),      // Add the current date to the product
-        };
-    
-        // Save the product to the MongoDB database
         try {
+          // Upload files to Cloudinary and store URLs
+          const uploadedImages = req.files['images']
+            ? await Promise.all(
+                req.files['images'].map((file) => uploadToCloudinary(file.buffer, 'products/images', 'image'))
+              )
+            : [];
+    
+          const singleImageUrl = req.files['singleImage']
+            ? await uploadToCloudinary(req.files['singleImage'][0].buffer, 'products/single', 'image')
+            : null;
+    
+          const videoUrl = req.files['video']
+            ? await uploadToCloudinary(req.files['video'][0].buffer, 'products/video', 'video')
+            : null;
+    
+          // Handle product details as needed...
+          const { title, buyingPrice, sellingPrice, quantity, description, model, category, company } = req.body;
+          const productId = Math.floor(10000000 + Math.random() * 90000000).toString();
+          const newProduct = {
+            productId,
+            title,
+            buyingPrice: Number(buyingPrice),
+            sellingPrice: Number(sellingPrice),
+            quantity: Number(quantity),
+            description,
+            category,
+            company,
+            model,
+            images: uploadedImages,
+            singleImage: singleImageUrl,
+            video: videoUrl,
+            createdAt: new Date(),
+          };
+    
+          // Save the product to the MongoDB database
           const result = await productsCollection.insertOne(newProduct);
           res.status(200).json({
             message: 'Product added successfully!',
-            productId: result.insertedId, // Return the inserted product ID
-            files: uploadedImages,         // Return the image URLs
-            singleImage: singleImageUrl,   // Return the single image URL
-            video: videoUrl,               // Return the video URL
+            productId: result.insertedId,
+            files: uploadedImages,
+            singleImage: singleImageUrl,
+            video: videoUrl,
           });
-        } catch (saveError) {
-          res.status(500).json({ error: 'Failed to save product to database.' });
+        } catch (error) {
+          res.status(500).json({ error: 'Failed to upload files to Cloudinary or save product to database.' });
         }
       });
     });
